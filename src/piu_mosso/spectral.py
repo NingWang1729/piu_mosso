@@ -423,5 +423,5 @@ def _spectral_layout(
         raise RuntimeError(
             f"The spectral start failed: the eigensolver ({method}) did not converge on a connected component of "
             f"{graph.shape[0]} cells, likely because of too small an eigengap. Start from a PCA instead with "
-            f"init='pca' (or pass start coordinates)"
+            f"init='pca' (init_pos='pca' in piu_mosso.tl.umap), or pass start coordinates"
         ) from error

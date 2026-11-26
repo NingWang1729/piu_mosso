@@ -29,6 +29,17 @@ pip uninstall faiss-cpu
 pip install faiss-gpu-cu12
 ```
 
+## Usage
+
+```python
+import piu_mosso
+import scanpy as sc
+
+piu_mosso.pp.neighbors(adata, use_rep="X_pca")   # FAISS neighbours and the UMAP graph, where scanpy keeps them
+piu_mosso.tl.umap(adata)                         # spectral start, parallel layout; writes .obsm["X_umap"]
+sc.pl.umap(adata, color="cell_type")
+```
+
 ## Tests
 
 ```bash
@@ -43,3 +54,7 @@ is at the top of that file.
 
 src/piu_mosso/layout.py follows umap-learn's simplicial_set_embedding (umap/umap_.py) step by step, under the same
 licence.
+
+src/piu_mosso/tl.py chooses the representation of a neighbour graph as scanpy's _choose_representation does
+(scanpy/tools/_utils.py), Copyright (c) 2025 scverse and Copyright (c) 2017 F. Alexander Wolf, P. Angerer, Theis Lab,
+under the BSD 3-Clause License.

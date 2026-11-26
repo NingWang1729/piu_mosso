@@ -29,7 +29,7 @@ from piu_mosso.graph import knn_distance_matrix, umap_connectivities
 def neighbors(adata, n_neighbors=15, *, use_rep="X_pca", exact_max_cells=None, use_gpu=False, random_state=0):
     """
     The UMAP neighbour graph of the cells, written where sc.pp.neighbors writes it, so scanpy's tools (sc.tl.umap,
-    sc.tl.leiden, ...) use it unchanged. With exact neighbours (up to exact_max_cells cells) the
+    sc.tl.leiden, ...) and piu_mosso.tl.umap use it unchanged. With exact neighbours (up to exact_max_cells cells) the
     graph equals the one scanpy builds from the same exact neighbours (sc.pp.neighbors is exact below 8,192 cells):
     distances within float32 rounding, weights within 5e-5 (the tolerance of umap-learn's search for each cell's
     sigma).
