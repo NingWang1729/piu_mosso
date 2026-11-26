@@ -34,3 +34,9 @@ pip install faiss-gpu-cu12
 ```bash
 bash tests/run_tests.sh [pytest arguments]   # in the active environment
 ```
+
+## Third-party code
+
+src/piu_mosso/spectral.py holds a copy of umap-learn's spectral layout (umap/spectral.py, version 0.5.12), changed where
+marked "piu_mosso:". umap-learn is Copyright (c) 2017, Leland McInnes, under the BSD 3-Clause License; the full notice
+is at the top of that file.
