@@ -23,5 +23,6 @@ from importlib.metadata import version
 from piu_mosso import pp, tl
 from piu_mosso.faiss_knn import knn
 from piu_mosso.graph import knn_distance_matrix, umap_connectivities
+from piu_mosso.layout import umap_embedding
 
 __version__ = version("piu_mosso")
