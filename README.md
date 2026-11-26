@@ -40,3 +40,6 @@ bash tests/run_tests.sh [pytest arguments]   # in the active environment
 src/piu_mosso/spectral.py holds a copy of umap-learn's spectral layout (umap/spectral.py, version 0.5.12), changed where
 marked "piu_mosso:". umap-learn is Copyright (c) 2017, Leland McInnes, under the BSD 3-Clause License; the full notice
 is at the top of that file.
+
+src/piu_mosso/layout.py follows umap-learn's simplicial_set_embedding (umap/umap_.py) step by step, under the same
+licence.
