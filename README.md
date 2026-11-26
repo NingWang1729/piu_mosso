@@ -58,3 +58,7 @@ licence.
 src/piu_mosso/tl.py chooses the representation of a neighbour graph as scanpy's _choose_representation does
 (scanpy/tools/_utils.py), Copyright (c) 2025 scverse and Copyright (c) 2017 F. Alexander Wolf, P. Angerer, Theis Lab,
 under the BSD 3-Clause License.
+
+piu_mosso.highly_variable_genes follows scanpy's Seurat v3 selection (scanpy/preprocessing/_highly_variable_genes.py),
+Copyright (c) 2025 scverse and Copyright (c) 2017 F. Alexander Wolf, P. Angerer, Theis Lab, under the BSD 3-Clause
+License; the full notice is in piu_mosso/hvg.py.
