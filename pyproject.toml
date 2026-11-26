@@ -1,0 +1,38 @@
+# pyproject.toml alone configures the build; setuptools 77 reads the SPDX license string below
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "piu_mosso"
+version = "0.1.0.dev0"
+description = "Fast single-cell utilities: FAISS nearest neighbours, a fast UMAP and Seurat v3 highly variable genes"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "LGPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{name = "Ning Wang"}]
+dependencies = [
+    "anndata",
+    # faiss-cpu and faiss-gpu-cu12 both install the module `faiss`, so they cannot share an environment;
+    # the README says how to swap in faiss-gpu-cu12
+    "faiss-cpu",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "scikit-misc",  # LOESS for Seurat v3 highly variable genes
+    "scipy",
+    # umap-learn 0.6 changed the defaults of its low-level layout functions (Adam optimizer)
+    "umap-learn>=0.5.12,<0.6",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+# The tests compare piu_mosso with scanpy
+test = ["pytest", "scanpy"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
