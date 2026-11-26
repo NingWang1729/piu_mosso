@@ -96,5 +96,5 @@ def test_failed_eigensolver_raises_naming_pca(monkeypatch, solver):
     # One iteration is too few for either solver to converge; umap-learn would fall back to a random start
     X, graph = clustered_graph(1, 1000, 1.0)
     monkeypatch.setattr(piu_mosso.spectral, "choose_eigensolver", lambda n_vertices, dim: solver)
-    with pytest.raises(RuntimeError, match="init='pca'"):
+    with pytest.raises(RuntimeError, match="init='pca'.*init_pos='pca'"):
         spectral_layout(X, graph, 2, check_random_state(0), maxiter=1)
