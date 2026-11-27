@@ -19,6 +19,9 @@ identifiers:
   - type: doi
     value: 10.5281/zenodo.24576963
     description: "Version DOI: piu_mosso 0.1.0 on Zenodo"
+  - type: doi
+    value: 10.5281/zenodo.24605387
+    description: "Version DOI: piu_mosso 0.2.0 on Zenodo"
 keywords:
   - single-cell
   - nearest neighbours
