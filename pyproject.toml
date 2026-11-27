@@ -46,6 +46,10 @@ Issues = "https://github.com/NingWang1729/piu_mosso/issues"
 Changelog = "https://github.com/NingWang1729/piu_mosso/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
+# CuPy for the GPU UMAP (use_gpu=True), one extra per CUDA major version; cupy-cuda12x and cupy-cuda13x both install
+# the module `cupy`, so install only one. [ctk] brings CUDA's runtime libraries (the kernel is compiled with NVRTC).
+cuda12 = ["cupy-cuda12x[ctk]>=14"]
+cuda13 = ["cupy-cuda13x[ctk]>=14"]
 # The tests compare piu_mosso with scanpy
 test = ["pytest", "scanpy"]
 
