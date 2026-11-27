@@ -21,5 +21,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from importlib.metadata import version
 
 from piu_mosso import pp, tl
+from piu_mosso.faiss_knn import knn
 
 __version__ = version("piu_mosso")
