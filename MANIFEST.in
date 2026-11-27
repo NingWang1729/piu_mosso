@@ -1,0 +1,2 @@
+# Files the sdist carries beyond setuptools' defaults (the package, README, LICENSE, pyproject.toml, tests/test*.py)
+include CHANGELOG.md CITATION.cff tests/run_tests.sh
