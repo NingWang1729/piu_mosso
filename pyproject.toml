@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "piu_mosso"
-version = "0.1.0"
+version = "0.2.0"
 description = "Fast single-cell utilities: FAISS nearest neighbours, a fast UMAP and Seurat v3 highly variable genes"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-27
+
 ### Added
 
 - GPU UMAP: `use_gpu=True` in `piu_mosso.tl.umap` and `piu_mosso.umap_embedding` runs the spectral start and the
@@ -18,6 +20,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - `use_gpu` in `piu_mosso.spectral.spectral_layout`: connected components of 10,000 cells or more are solved with
   CuPy's LOBPCG on the GPU, at a default tolerance of 1e-5 (the CPU's is 1e-4): the same eigenvectors as on the CPU
   up to sign, within the solvers' tolerances.
+
+### Known issues
+
+- As in 0.1.0, seven tests that compare piu_mosso with scanpy fail with scanpy 1.13 and pandas 3
+  ([#7](https://github.com/NingWang1729/piu_mosso/issues/7)); with scanpy 1.11 and pandas 2, all tests pass.
 
 ## [0.1.0] - 2026-11-26
 
@@ -56,5 +63,6 @@ First release.
 
   With scanpy 1.11 and pandas 2, all tests pass. To be resolved in a later release.
 
-[Unreleased]: https://github.com/NingWang1729/piu_mosso/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/NingWang1729/piu_mosso/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/NingWang1729/piu_mosso/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/NingWang1729/piu_mosso/releases/tag/v0.1.0
