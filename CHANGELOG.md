@@ -5,6 +5,20 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- GPU UMAP: `use_gpu=True` in `piu_mosso.tl.umap` and `piu_mosso.umap_embedding` runs the spectral start and the
+  layout on a CUDA GPU with CuPy (extras `cuda12` and `cuda13`; install one). The layout (`piu_mosso.gpu_layout`)
+  follows umap-learn's per-edge updates and schedule with both cells of each edge moving; from the same start it is
+  repeatable for a `random_state` on the same GPU and software versions, and it differs from the CPU layout
+  (synchronous updates within each of 16 launches per epoch, a cell's summed move per launch clipped to 4 times the
+  learning rate, negative samples from a counter hash, steps summed in fixed point). Missing CuPy, no usable GPU or
+  unsupported arguments raise before any work, too little GPU memory before the start. `tl.umap` records `use_gpu`
+  in `.uns['umap']['params']` for GPU layouts.
+- `use_gpu` in `piu_mosso.spectral.spectral_layout`: connected components of 10,000 cells or more are solved with
+  CuPy's LOBPCG on the GPU, at a default tolerance of 1e-5 (the CPU's is 1e-4): the same eigenvectors as on the CPU
+  up to sign, within the solvers' tolerances.
+
 ## [0.1.0] - 2026-11-26
 
 First release.

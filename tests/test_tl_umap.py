@@ -30,6 +30,16 @@ import piu_mosso
 matplotlib.use("Agg")
 
 
+def cupy_gpu_available():
+    """Whether CuPy imports and sees a CUDA GPU (GPU tests are skipped otherwise)."""
+    try:
+        import cupy
+
+        return cupy.cuda.runtime.getDeviceCount() > 0
+    except Exception:  # no CuPy, or no usable CUDA
+        return False
+
+
 def clustered_adata(n_cells=600, n_genes=100, seed=0):
     """An AnnData with clustered expression-like data, its PCA and a scanpy neighbour graph."""
     rng = np.random.default_rng(seed)
@@ -142,3 +152,31 @@ def test_umap_with_too_few_stored_pcs_raises():
     adata.obsm["X_pca"] = adata.obsm["X_pca"][:, :5]
     with pytest.raises(ValueError, match="n_pcs=10"):
         piu_mosso.tl.umap(adata)
+
+
+def test_umap_passes_use_gpu_and_records_it(monkeypatch):
+    # Without a GPU: the layout is replaced, to check what tl.umap passes and writes
+    calls = []
+    monkeypatch.setattr(
+        piu_mosso.tl, "umap_embedding", lambda X, graph, **kwargs: calls.append(kwargs) or np.zeros((len(X), 2))
+    )
+    adata = clustered_adata()
+    piu_mosso.pp.neighbors(adata, use_rep="X_pca")
+    piu_mosso.tl.umap(adata, use_gpu=True)
+    assert calls[-1]["use_gpu"] is True
+    assert adata.uns["umap"]["params"]["use_gpu"] is True
+    piu_mosso.tl.umap(adata)
+    assert calls[-1]["use_gpu"] is False
+    assert "use_gpu" not in adata.uns["umap"]["params"]
+
+
+@pytest.mark.skipif(not cupy_gpu_available(), reason="needs CuPy and a CUDA GPU")
+def test_gpu_umap_end_to_end_repeats():
+    # A PCA start: the spectral start of this graph's separate clusters may itself vary between runs
+    adata = clustered_adata(n_cells=3000)
+    piu_mosso.pp.neighbors(adata, use_rep="X_pca")
+    piu_mosso.tl.umap(adata, init_pos="pca", use_gpu=True)
+    first = adata.obsm["X_umap"].copy()
+    assert first.shape == (3000, 2) and np.all(np.isfinite(first))
+    piu_mosso.tl.umap(adata, init_pos="pca", use_gpu=True)
+    np.testing.assert_array_equal(adata.obsm["X_umap"], first)
