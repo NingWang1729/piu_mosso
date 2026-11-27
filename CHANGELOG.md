@@ -30,5 +30,17 @@ First release.
   memory, equal to scanpy's for their concatenation up to floating-point rounding, without concatenating them or
   loading them into memory. Non-integer or negative counts raise an error where scanpy warns.
 
+### Known issues
+
+- With scanpy 1.13 and pandas 3 (the current releases; seen on Python 3.13), seven tests that compare piu_mosso with
+  scanpy fail ([#7](https://github.com/NingWang1729/piu_mosso/issues/7)). scanpy is only a test dependency of
+  piu_mosso; the failures are differences from scanpy's output:
+  - `highly_variable_genes` with `batch_key` can rank tied genes half a rank differently from scanpy's `seurat_v3`
+    (`highly_variable_rank`).
+  - scanpy 1.13's `sc.tl.umap` records extra entries in `uns['umap']['params']` (`compatibility_layout`, and
+    `random_state` even when 0) that `piu_mosso.tl.umap` does not write.
+
+  With scanpy 1.11 and pandas 2, all tests pass. To be resolved in a later release.
+
 [Unreleased]: https://github.com/NingWang1729/piu_mosso/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/NingWang1729/piu_mosso/releases/tag/v0.1.0
