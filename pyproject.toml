@@ -1,11 +1,12 @@
-# pyproject.toml alone configures the build; setuptools 77 reads the SPDX license string below
+# pyproject.toml configures the build and MANIFEST.in adds files to the sdist; setuptools 77 reads the SPDX
+# license string below
 [build-system]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "piu_mosso"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Fast single-cell utilities: FAISS nearest neighbours, a fast UMAP and Seurat v3 highly variable genes"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,10 +26,24 @@ dependencies = [
     # umap-learn 0.6 changed the defaults of its low-level layout functions (Adam optimizer)
     "umap-learn>=0.5.12,<0.6",
 ]
+keywords = ["single-cell", "scanpy", "anndata", "nearest neighbours", "faiss", "umap", "highly variable genes"]
+# No "License ::" classifier: setuptools 77 refuses one next to the SPDX license expression above (PEP 639)
 classifiers = [
-    "Programming Language :: Python :: 3",
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
+
+[project.urls]
+Homepage = "https://github.com/NingWang1729/piu_mosso"
+Repository = "https://github.com/NingWang1729/piu_mosso"
+Issues = "https://github.com/NingWang1729/piu_mosso/issues"
+Changelog = "https://github.com/NingWang1729/piu_mosso/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 # The tests compare piu_mosso with scanpy

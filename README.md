@@ -4,14 +4,16 @@
 highly variable gene selection across several AnnDatas.
 
 piu_mosso is free software, licensed under the GNU Lesser General Public License, version 3 or (at your option) any
-later version (LGPL-3.0-or-later). The LGPL builds on the GNU General Public License, version 3; [LICENSE](LICENSE)
-holds both texts.
+later version (LGPL-3.0-or-later). The LGPL builds on the GNU General Public License, version 3;
+[LICENSE](https://github.com/NingWang1729/piu_mosso/blob/master/LICENSE) holds both texts.
 
 ## Install
 
 ```bash
-pip install piu_mosso   # once released on PyPI
+pip install piu-mosso
 ```
+
+piu_mosso needs Python 3.11 or later.
 
 For development, an editable install with the test dependencies (scanpy, pytest):
 
@@ -29,7 +31,13 @@ pip uninstall faiss-cpu
 pip install faiss-gpu-cu12
 ```
 
+Then pass `use_gpu=True` to `piu_mosso.knn` or `piu_mosso.pp.neighbors`. The UMAP layout runs on the CPU; a GPU
+layout is planned.
+
 ## Usage
+
+piu_mosso works on scanpy's AnnData objects and writes its results where scanpy does, so scanpy's other tools and
+plots use them unchanged.
 
 ```python
 import piu_mosso
@@ -39,6 +47,27 @@ piu_mosso.pp.neighbors(adata, use_rep="X_pca")   # FAISS neighbours and the UMAP
 piu_mosso.tl.umap(adata)                         # spectral start, parallel layout; writes .obsm["X_umap"]
 sc.pl.umap(adata, color="cell_type")
 ```
+
+Seurat v3 highly variable genes over several datasets together, from raw counts, without concatenating them or
+loading them into memory:
+
+```python
+import anndata as ad
+
+adatas = [ad.read_h5ad(path, backed="r") for path in ["part1.h5ad", "part2.h5ad"]]
+hvg = piu_mosso.highly_variable_genes(adatas, n_top_genes=2000, batch_key="sample")
+genes = hvg.index[hvg["highly_variable"]]
+```
+
+The lower-level functions are `piu_mosso.knn` (nearest neighbours of an array), `piu_mosso.umap_connectivities` and
+`piu_mosso.knn_distance_matrix` (scanpy's graph and distances from them) and `piu_mosso.umap_embedding` (the layout of
+a graph). Their docstrings give the details.
+
+## Changes and citation
+
+[CHANGELOG.md](https://github.com/NingWang1729/piu_mosso/blob/master/CHANGELOG.md) lists the changes in each release. To
+cite piu_mosso, see [CITATION.cff](https://github.com/NingWang1729/piu_mosso/blob/master/CITATION.cff) (GitHub's "Cite
+this repository" button reads it).
 
 ## Tests
 

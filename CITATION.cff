@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use piu_mosso, please cite it as below."
+type: software
+title: piu_mosso
+abstract: "Fast single-cell utilities: FAISS nearest neighbours, a fast UMAP and Seurat v3 highly variable genes."
+authors:
+  - family-names: Wang
+    given-names: Ning
+    orcid: "https://orcid.org/0000-0003-3073-7911"
+license: LGPL-3.0-or-later
+repository-code: "https://github.com/NingWang1729/piu_mosso"
+version: 0.1.0
+date-released: "2026-11-26"
+keywords:
+  - single-cell
+  - nearest neighbours
+  - UMAP
+  - FAISS
+  - highly variable genes
+  - scanpy
