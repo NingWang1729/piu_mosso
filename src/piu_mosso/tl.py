@@ -44,11 +44,12 @@ def umap(
     init_pos="spectral",
     random_state=0,
     parallel=True,
+    use_gpu=False,
 ):
     """
     The UMAP of the neighbour graph in .uns['neighbors'] (from piu_mosso.pp.neighbors or sc.pp.neighbors), written
     where sc.tl.umap writes it, so sc.pl.umap shows it. The arguments are a subset of sc.tl.umap's (no a, b, copy,
-    neighbors_key, key_added or method; init_pos without obsm keys or "paga"), plus parallel.
+    neighbors_key, key_added or method; init_pos without obsm keys or "paga"), plus parallel and use_gpu.
 
     The layout is piu_mosso.umap_embedding: umap-learn's, run in parallel by default, and a failed spectral start
     raises an error naming init_pos="pca" instead of silently starting at random. With parallel=False the result
@@ -71,14 +72,19 @@ def umap(
         Seed (or numpy RandomState) for the start and the layout.
     parallel
         Run the layout on numba's current number of threads (numba.get_num_threads(); not reproducible), or
-        serially.
+        serially. No effect with use_gpu (a warning if False).
+    use_gpu
+        Run the spectral start and the layout on a CUDA GPU (see piu_mosso.umap_embedding; needs the cuda12 or
+        cuda13 extra). Repeatable for a random_state from the same start (see piu_mosso.umap_embedding), but not
+        equal to the CPU result.
 
     Writes
     ------
     .obsm['X_umap']
         The layout, float32 (n_cells, n_components).
     .uns['umap']
-        {'params': {'a', 'b'}} (plus 'random_state' if it is not 0), as scanpy writes it.
+        {'params': {'a', 'b'}} (plus 'random_state' if it is not 0), as scanpy writes it, plus 'use_gpu': True for
+        a GPU layout.
     """
     init_pos = _canonicalize_init_pos(init_pos)
     neighbors = _get_neighbors(adata)
@@ -99,11 +105,15 @@ def umap(
         gamma=gamma,
         parallel=parallel,
         random_state=random_state,
+        use_gpu=use_gpu,
     )
     a, b = find_ab_params(spread, min_dist)
     adata.uns["umap"] = {"params": {"a": a, "b": b}}
     if random_state != 0:
         adata.uns["umap"]["params"]["random_state"] = random_state
+    # Recorded only for GPU layouts, so CPU results keep scanpy's keys
+    if use_gpu:
+        adata.uns["umap"]["params"]["use_gpu"] = True
 
 
 def _canonicalize_init_pos(init_pos):

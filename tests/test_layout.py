@@ -16,14 +16,30 @@ You should have received a copy of the GNU Lesser General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
+import sys
+
 import numpy as np
 import pytest
 import scipy.sparse
 from sklearn.utils import check_random_state
 from umap.umap_ import find_ab_params, simplicial_set_embedding
 
+import piu_mosso.layout
 from piu_mosso import knn, umap_connectivities, umap_embedding
 from piu_mosso.layout import default_n_epochs
+
+
+def cupy_gpu_available():
+    """Whether CuPy imports and sees a CUDA GPU (GPU tests are skipped otherwise)."""
+    try:
+        import cupy
+
+        return cupy.cuda.runtime.getDeviceCount() > 0
+    except Exception:  # no CuPy, or no usable CUDA
+        return False
+
+
+needs_gpu = pytest.mark.skipif(not cupy_gpu_available(), reason="needs CuPy and a CUDA GPU")
 
 
 def clustered_graph(n_clusters=5, cells_per_cluster=100, separation=5.0, seed=0):
@@ -143,3 +159,55 @@ def test_init_names_ignore_case():
         umap_embedding(X, graph, init="PCA", n_epochs=20, parallel=False),
         umap_embedding(X, graph, init="pca", n_epochs=20, parallel=False),
     )
+
+
+def test_use_gpu_without_cupy_raises_before_any_work(monkeypatch):
+    # sys.modules[name] = None makes `import cupy` fail, whether or not CuPy is installed; pruning the graph is the
+    # first step of the work, so it must not be reached
+    monkeypatch.setitem(sys.modules, "cupy", None)
+    monkeypatch.setattr(piu_mosso.layout, "_pruned_graph", lambda *args: pytest.fail("work started"))
+    X, graph = clustered_graph()
+    with pytest.raises(ImportError, match=r"piu-mosso\[cuda12\]"):
+        umap_embedding(X, graph, use_gpu=True)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [({"n_components": 9}, "dimensions"), ({"negative_sample_rate": -1}, "negative_sample_rate")],
+)
+def test_options_the_gpu_cannot_run_raise_before_checking_cupy(monkeypatch, kwargs, message):
+    monkeypatch.setitem(sys.modules, "cupy", None)
+    X, graph = clustered_graph()
+    with pytest.raises(ValueError, match=message):
+        umap_embedding(X, graph, use_gpu=True, **kwargs)
+
+
+@needs_gpu
+def test_gpu_layout_keeps_clusters_apart():
+    X, graph = clustered_graph(separation=20.0)
+    embedding = umap_embedding(X, graph, use_gpu=True)
+    assert embedding.shape == (len(X), 2) and embedding.dtype == np.float32
+    assert np.all(np.isfinite(embedding))
+    clusters = embedding.reshape(5, 100, 2)
+    centers = clusters.mean(axis=1)
+    within = np.linalg.norm(clusters - centers[:, None], axis=2).max()
+    between = min(np.linalg.norm(centers[i] - centers[j]) for i in range(5) for j in range(i + 1, 5))
+    assert within < between
+
+
+@needs_gpu
+def test_gpu_layout_repeats_for_a_random_state():
+    # From a given start (the spectral start of a graph with several components is itself not repeatable: the
+    # placement of the components varies from run to run, on the CPU as in umap-learn)
+    X, graph = clustered_graph()
+    start = np.random.default_rng(0).random((len(X), 2))
+    first = umap_embedding(X, graph, init=start, use_gpu=True)
+    np.testing.assert_array_equal(umap_embedding(X, graph, init=start, use_gpu=True), first)
+    assert not np.array_equal(umap_embedding(X, graph, init=start, use_gpu=True, random_state=1), first)
+
+
+@needs_gpu
+def test_serial_option_warns_on_the_gpu():
+    X, graph = clustered_graph()
+    with pytest.warns(UserWarning, match="parallel=False has no effect"):
+        umap_embedding(X, graph, use_gpu=True, parallel=False, n_epochs=5)

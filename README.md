@@ -21,18 +21,38 @@ For development, an editable install with the test dependencies (scanpy, pytest)
 pip install -e ".[test]"
 ```
 
+### GPU UMAP
+
+The UMAP's spectral start and layout can run on a CUDA GPU with CuPy. Install one of the two extras, matching the
+GPU's driver (a CUDA 13 driver for `cuda13`); both install the `cupy` module, so never both:
+
+```bash
+pip install "piu-mosso[cuda12]"   # or "piu-mosso[cuda13]"
+```
+
+Then pass `use_gpu=True` to `piu_mosso.tl.umap` or `piu_mosso.umap_embedding`. Without CuPy that raises ImportError
+naming the extras (Python's convention for a missing optional dependency); without a usable GPU, RuntimeError. The GPU
+layout follows umap-learn's updates and scanpy's defaults, moving both cells of each sampled edge, but it is not equal
+to the CPU layout: updates are synchronous within each of 16 launches per epoch, a cell's summed move per launch is
+clipped to 4 times the learning rate, negative samples are drawn differently, and steps are summed in fixed point. In
+exchange the layout is repeatable: from the same start, the same `random_state` gives the same layout on the same GPU
+model with the same CUDA and CuPy versions (the CPU's parallel layout varies from run to run). The spectral start
+itself can vary between runs where the graph has several connected components (their placement), on the GPU as on the
+CPU. The GPU solves connected components of 10,000 cells or more with LOBPCG; smaller ones use the CPU solver.
+
 ### GPU nearest neighbours
 
-piu_mosso depends on `faiss-cpu`. FAISS's GPU build, `faiss-gpu-cu12`, installs the same `faiss` module, so the two
-cannot share an environment (importing faiss fails when both are installed). For GPU search, swap them:
+The CuPy extra does not change the nearest-neighbour search. piu_mosso depends on `faiss-cpu`. FAISS's GPU build,
+`faiss-gpu-cu12`, installs the same `faiss` module, so the two cannot share an environment (importing faiss fails when
+both are installed). For GPU search, swap them:
 
 ```bash
 pip uninstall faiss-cpu
 pip install faiss-gpu-cu12
 ```
 
-Then pass `use_gpu=True` to `piu_mosso.knn` or `piu_mosso.pp.neighbors`. The UMAP layout runs on the CPU; a GPU
-layout is planned.
+Then pass `use_gpu=True` to `piu_mosso.knn` or `piu_mosso.pp.neighbors`. faiss-gpu-cu12 has been tested next to the
+`cuda12` extra.
 
 ## Usage
 
@@ -83,7 +103,8 @@ marked "piu_mosso:". umap-learn is Copyright (c) 2017, Leland McInnes, under the
 is at the top of that file.
 
 src/piu_mosso/layout.py follows umap-learn's simplicial_set_embedding (umap/umap_.py) step by step, under the same
-licence.
+licence. The CUDA kernel in src/piu_mosso/gpu_layout.py follows umap-learn's _optimize_layout_euclidean_single_epoch
+(umap/layouts.py) per edge, under the same licence.
 
 src/piu_mosso/tl.py chooses the representation of a neighbour graph as scanpy's _choose_representation does
 (scanpy/tools/_utils.py), Copyright (c) 2025 scverse and Copyright (c) 2017 F. Alexander Wolf, P. Angerer, Theis Lab,
