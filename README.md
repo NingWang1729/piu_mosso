@@ -67,7 +67,8 @@ a graph). Their docstrings give the details.
 
 [CHANGELOG.md](https://github.com/NingWang1729/piu_mosso/blob/master/CHANGELOG.md) lists the changes in each release. To
 cite piu_mosso, see [CITATION.cff](https://github.com/NingWang1729/piu_mosso/blob/master/CITATION.cff) (GitHub's "Cite
-this repository" button reads it).
+this repository" button reads it). Releases are archived on Zenodo under the concept DOI
+[10.5281/zenodo.24576962](https://doi.org/10.5281/zenodo.24576962), which always resolves to the latest version.
 
 ## Tests
 
