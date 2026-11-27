@@ -16,15 +16,32 @@ You should have received a copy of the GNU Lesser General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
+import sys
+
 import numpy as np
 import pytest
 import scipy.sparse
 import umap.spectral
 from sklearn.utils import check_random_state
 
+import piu_mosso.gpu_spectral
 import piu_mosso.spectral
 from piu_mosso import knn, umap_connectivities
 from piu_mosso.spectral import choose_eigensolver, spectral_layout
+
+
+def cupy_gpu_available():
+    """Whether CuPy imports and sees a CUDA GPU (GPU tests are skipped otherwise)."""
+    try:
+        import cupy
+
+        return cupy.cuda.runtime.getDeviceCount() > 0
+    except Exception:  # no CuPy, or no usable CUDA
+        return False
+
+
+HAS_CUPY_GPU = cupy_gpu_available()
+needs_gpu = pytest.mark.skipif(not HAS_CUPY_GPU, reason="needs CuPy and a CUDA GPU")
 
 
 def clustered_graph(n_clusters, cells_per_cluster, separation, seed=0):
@@ -98,3 +115,99 @@ def test_failed_eigensolver_raises_naming_pca(monkeypatch, solver):
     monkeypatch.setattr(piu_mosso.spectral, "choose_eigensolver", lambda n_vertices, dim: solver)
     with pytest.raises(RuntimeError, match="init='pca'.*init_pos='pca'"):
         spectral_layout(X, graph, 2, check_random_state(0), maxiter=1)
+
+
+def test_use_gpu_without_cupy_raises_naming_the_extra(monkeypatch):
+    # sys.modules[name] = None makes `import cupy` fail, whether or not CuPy is installed
+    monkeypatch.setitem(sys.modules, "cupy", None)
+    X, graph = clustered_graph(1, 300, 1.0)
+    with pytest.raises(ImportError, match=r"piu-mosso\[cuda12\]"):
+        spectral_layout(X, graph, 2, check_random_state(0), use_gpu=True)
+
+
+def subspace_cosines(layout, reference):
+    """Cosines of the principal angles between the column spaces of two layouts (1 = the same space; eigenvectors
+    are defined up to sign, and up to rotation where eigenvalues are close)."""
+    q_layout, _ = np.linalg.qr(layout)
+    q_reference, _ = np.linalg.qr(reference)
+    return np.linalg.svd(q_layout.T @ q_reference, compute_uv=False)
+
+
+@pytest.fixture
+def gpu_solves(monkeypatch):
+    """(size, tol) of each component the GPU eigensolver is called on during a test."""
+    calls = []
+    solve = piu_mosso.gpu_spectral.lobpcg_eigenpairs
+
+    def counting(graph, *args, **kwargs):
+        calls.append((graph.shape[0], kwargs["tol"]))
+        return solve(graph, *args, **kwargs)
+
+    monkeypatch.setattr(piu_mosso.gpu_spectral, "lobpcg_eigenpairs", counting)
+    return calls
+
+
+@needs_gpu
+def test_gpu_layout_has_the_cpu_eigenvectors(gpu_solves):
+    # 12,000 cells: above GPU_SPECTRAL_MIN_CELLS, so solved on the GPU; its eigenvectors span the CPU's space within
+    # the solvers' tolerance (eigsh on the CPU, lobpcg on the GPU, both 1e-4)
+    X, graph = clustered_graph(1, 12_000, 1.0)
+    cpu = spectral_layout(X, graph, 2, check_random_state(0))
+    gpu = spectral_layout(X, graph, 2, check_random_state(0), use_gpu=True)
+    # Solved once, on the GPU, at the GPU's default tolerance
+    assert gpu_solves == [(12_000, 1e-5)]
+    assert gpu.shape == cpu.shape
+    assert subspace_cosines(gpu, cpu).min() > 0.999
+
+
+def test_components_below_the_gpu_size_keep_the_cpu_result(monkeypatch, gpu_solves):
+    # Runs without a GPU: the CuPy check is skipped, and a 1,000-cell graph never reaches the GPU solver
+    monkeypatch.setattr(piu_mosso.spectral, "check_cupy", lambda: None)
+    X, graph = clustered_graph(1, 1000, 1.0)
+    cpu = spectral_layout(X, graph, 2, check_random_state(0))
+    np.testing.assert_array_equal(spectral_layout(X, graph, 2, check_random_state(0), use_gpu=True), cpu)
+    assert gpu_solves == []
+
+
+@needs_gpu
+def test_gpu_layout_of_separate_components_is_finite(monkeypatch, gpu_solves):
+    monkeypatch.setattr(piu_mosso.spectral, "GPU_SPECTRAL_MIN_CELLS", 500)
+    X, graph = clustered_graph(2, 1000, 100.0)
+    cpu = spectral_layout(X, graph, 2, check_random_state(0))
+    gpu = spectral_layout(X, graph, 2, check_random_state(0), use_gpu=True)
+    assert [size for size, _ in gpu_solves] == [1000, 1000]
+    assert gpu.shape == cpu.shape
+    assert np.isfinite(gpu).all()
+
+
+@needs_gpu
+def test_failed_gpu_eigensolver_raises_naming_pca(monkeypatch, gpu_solves):
+    # One iteration is too few for lobpcg to converge
+    monkeypatch.setattr(piu_mosso.spectral, "GPU_SPECTRAL_MIN_CELLS", 500)
+    X, graph = clustered_graph(1, 1000, 1.0)
+    with pytest.raises(RuntimeError, match="init='pca'.*init_pos='pca'"):
+        spectral_layout(X, graph, 2, check_random_state(0), maxiter=1, use_gpu=True)
+    assert [size for size, _ in gpu_solves] == [1000]
+
+
+@needs_gpu
+def test_a_given_tolerance_overrides_the_gpu_default(monkeypatch, gpu_solves):
+    monkeypatch.setattr(piu_mosso.spectral, "GPU_SPECTRAL_MIN_CELLS", 500)
+    X, graph = clustered_graph(1, 1000, 1.0)
+    spectral_layout(X, graph, 2, check_random_state(0), tol=1e-4, use_gpu=True)
+    assert gpu_solves == [(1000, 1e-4)]
+
+
+@needs_gpu
+def test_running_out_of_gpu_memory_raises_naming_the_alternatives(monkeypatch):
+    import cupy
+    import cupyx.scipy.sparse.linalg
+
+    def out_of_memory(*args, **kwargs):
+        raise cupy.cuda.memory.OutOfMemoryError(2**40, 0)
+
+    monkeypatch.setattr(cupyx.scipy.sparse.linalg, "lobpcg", out_of_memory)
+    monkeypatch.setattr(piu_mosso.spectral, "GPU_SPECTRAL_MIN_CELLS", 500)
+    X, graph = clustered_graph(1, 1000, 1.0)
+    with pytest.raises(RuntimeError, match="use_gpu=False.*init='pca'"):
+        spectral_layout(X, graph, 2, check_random_state(0), use_gpu=True)
