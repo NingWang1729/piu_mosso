@@ -23,8 +23,11 @@ import faiss
 import numpy as np
 import scipy.sparse
 
-# Up to this many cells the search is exact (IndexFlatL2, n^2 d work); above it, approximate (IVF)
-EXACT_MAX_CELLS = 200_000
+# Default largest number of cells searched exactly (IndexFlatL2, n^2 d work); above it, the search is approximate
+# (IVF). Chosen from a benchmark of exact against IVF search time on each device: exact search on a GPU stays faster
+# than IVF up to much larger sizes than on the CPU, so each device has its own default
+CPU_EXACT_MAX_CELLS = 2**16
+GPU_EXACT_MAX_CELLS = 2**21
 
 # nprobe is doubled until the IVF search finds this fraction of the exact neighbours of a random sample of cells
 TARGET_RECALL = 0.99
@@ -47,14 +50,15 @@ GPU_MAX_NPROBE = 2048
 DISTANCE_CHUNK_VALUES = 2**25
 
 
-def knn(X, k, *, exact_max_cells=EXACT_MAX_CELLS, use_gpu=False, random_state=0):
+def knn(X, k, *, exact_max_cells=None, use_gpu=False, random_state=0):
     """
     The k nearest neighbours of every cell (row of X) other than the cell itself, by Euclidean distance.
 
-    Up to exact_max_cells cells the search is exact (FAISS IndexFlatL2). Above, it is approximate (IndexIVFFlat with
-    4 sqrt(n) lists): the number of lists searched (nprobe) is doubled from 1 until the neighbours of a random sample
-    of 2,000 cells include 99% of their exact neighbours. Cells left with fewer than k neighbours by the approximate
-    search (FAISS marks the gaps with -1) are searched again exactly.
+    Up to exact_max_cells cells (by default 2**16 on the CPU, 2**21 on a GPU) the search is exact (FAISS
+    IndexFlatL2). Above, it is approximate (IndexIVFFlat with 4 sqrt(n) lists): the number of lists searched (nprobe)
+    is doubled from 1 until the neighbours of a random sample of 2,000 cells include 99% of their exact neighbours.
+    Cells left with fewer than k neighbours by the approximate search (FAISS marks the gaps with -1) are searched
+    again exactly.
 
     The distances of the pairs found are then recomputed exactly (in float64), since FAISS computes them as
     |x|^2 + |y|^2 - 2 x.y, which loses precision for close pairs, and each row is sorted by them.
@@ -71,7 +75,8 @@ def knn(X, k, *, exact_max_cells=EXACT_MAX_CELLS, use_gpu=False, random_state=0)
         Number of neighbours per cell, not counting the cell itself (scanpy's n_neighbors counts it: k = n_neighbors
         - 1). Duplicates of a cell can be among its neighbours, at distance 0.
     exact_max_cells
-        Largest number of cells searched exactly.
+        Largest number of cells searched exactly. None (the default): CPU_EXACT_MAX_CELLS (2**16) on the CPU,
+        GPU_EXACT_MAX_CELLS (2**21) with use_gpu.
     use_gpu
         Search on the first visible GPU. Needs the faiss-gpu-cu12 build of faiss in place of faiss-cpu.
     random_state
@@ -92,6 +97,8 @@ def knn(X, k, *, exact_max_cells=EXACT_MAX_CELLS, use_gpu=False, random_state=0)
         _check_gpu_available()
         _check_k_on_gpu(k)
     X = _as_float32_matrix(X)
+    if exact_max_cells is None:
+        exact_max_cells = GPU_EXACT_MAX_CELLS if use_gpu else CPU_EXACT_MAX_CELLS
     rng = np.random.default_rng(random_state)
     # The GPU indexes need their resources for as long as they are used
     gpu_resources = faiss.StandardGpuResources() if use_gpu else None

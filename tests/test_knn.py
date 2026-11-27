@@ -28,6 +28,9 @@ from piu_mosso import knn
 # Whether this faiss build can use a GPU here; GPU tests are skipped otherwise
 HAS_GPU = hasattr(faiss, "StandardGpuResources") and faiss.get_num_gpus() > 0
 
+# An exact_max_cells above the cell count of every test here, so the search is exact
+EXACT = 10**6
+
 
 def clustered_data(n_clusters, cells_per_cluster, n_dims=8, spread=0.1, seed=0):
     """Cells in well-separated Gaussian clusters, float32."""
@@ -67,7 +70,7 @@ def test_float64_input_gives_the_same_neighbors():
     np.testing.assert_allclose(distances64, distances32, rtol=1e-5)
 
 
-@pytest.mark.parametrize("exact_max_cells", [200_000, 0], ids=["exact", "ivf"])
+@pytest.mark.parametrize("exact_max_cells", [EXACT, 0], ids=["exact", "ivf"])
 def test_more_copies_than_neighbors_never_return_self(exact_max_cells):
     # Each cell appears six times and k + 1 = 3, so FAISS can return three other copies and leave the cell itself out
     X = np.repeat(np.random.default_rng(3).normal(size=(200, 5)).astype(np.float32), 6, axis=0)
@@ -78,7 +81,7 @@ def test_more_copies_than_neighbors_never_return_self(exact_max_cells):
     np.testing.assert_array_equal(distances, 0)
 
 
-@pytest.mark.parametrize("exact_max_cells", [200_000, 0], ids=["exact", "ivf"])
+@pytest.mark.parametrize("exact_max_cells", [EXACT, 0], ids=["exact", "ivf"])
 def test_duplicate_cells_are_neighbors_but_never_self(exact_max_cells):
     # Each cell appears three times, so two copies tie with the cell itself at distance 0 and FAISS may list
     # them before it
@@ -111,6 +114,47 @@ def test_ivf_search_is_reproducible():
     second = knn(X, 15, exact_max_cells=0, random_state=3)
     np.testing.assert_array_equal(first[0], second[0])
     np.testing.assert_array_equal(first[1], second[1])
+
+
+class _IVFChosen(Exception):
+    """Raised in place of building an IVF index, to stop knn once it has chosen the approximate search."""
+
+
+def ivf_chosen(X, monkeypatch, **kwargs):
+    """
+    Whether knn(X, 1, **kwargs) chooses the approximate (IVF) search rather than the exact one. Tests an internal
+    rule: no output tells the two apart, since the IVF search often finds the exact neighbours. Only the IVF search
+    builds an IndexIVFFlat; the exact search runs to the end and its output shape is checked.
+    """
+    def stop(*_args, **_kwargs):
+        raise _IVFChosen
+
+    monkeypatch.setattr(faiss, "IndexIVFFlat", stop)
+    try:
+        indices, distances = knn(X, 1, **kwargs)
+    except _IVFChosen:
+        return True
+    assert indices.shape == distances.shape == (len(X), 1)
+    return False
+
+
+def test_default_is_exact_up_to_2_16_cells_on_the_cpu(monkeypatch):
+    X = np.random.default_rng(6).normal(size=(2**16 + 1, 2)).astype(np.float32)
+    assert not ivf_chosen(X[:2**16], monkeypatch)
+    assert ivf_chosen(X, monkeypatch)
+
+
+def test_exact_max_cells_overrides_the_default(monkeypatch):
+    X = np.random.default_rng(6).normal(size=(2**16 + 1, 2)).astype(np.float32)
+    assert not ivf_chosen(X, monkeypatch, exact_max_cells=2**16 + 1)
+    assert ivf_chosen(X[:100], monkeypatch, exact_max_cells=0)
+
+
+@pytest.mark.skipif(not HAS_GPU, reason="needs faiss-gpu and a GPU")
+def test_default_is_exact_up_to_2_21_cells_on_a_gpu(monkeypatch):
+    X = np.random.default_rng(7).normal(size=(2**21 + 1, 2)).astype(np.float32)
+    assert not ivf_chosen(X[:2**21], monkeypatch, use_gpu=True)
+    assert ivf_chosen(X, monkeypatch, use_gpu=True)
 
 
 def test_tiny_data_in_ivf_mode():
@@ -173,7 +217,7 @@ def test_k_above_the_gpu_limit_raises():
 
 
 @pytest.mark.skipif(not HAS_GPU, reason="needs faiss-gpu and a GPU")
-@pytest.mark.parametrize("exact_max_cells", [200_000, 0], ids=["exact", "ivf"])
+@pytest.mark.parametrize("exact_max_cells", [EXACT, 0], ids=["exact", "ivf"])
 def test_gpu_search_equals_cpu_search(exact_max_cells):
     X = clustered_data(n_clusters=50, cells_per_cluster=100, spread=1.0)
     cpu_indices, cpu_distances = knn(X, 15, exact_max_cells=exact_max_cells)
