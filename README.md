@@ -83,7 +83,8 @@ marked "piu_mosso:". umap-learn is Copyright (c) 2017, Leland McInnes, under the
 is at the top of that file.
 
 src/piu_mosso/layout.py follows umap-learn's simplicial_set_embedding (umap/umap_.py) step by step, under the same
-licence.
+licence. The CUDA kernel in src/piu_mosso/gpu_layout.py follows umap-learn's _optimize_layout_euclidean_single_epoch
+(umap/layouts.py) per edge, under the same licence.
 
 src/piu_mosso/tl.py chooses the representation of a neighbour graph as scanpy's _choose_representation does
 (scanpy/tools/_utils.py), Copyright (c) 2025 scverse and Copyright (c) 2017 F. Alexander Wolf, P. Angerer, Theis Lab,
