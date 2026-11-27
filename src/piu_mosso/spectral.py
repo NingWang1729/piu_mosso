@@ -68,10 +68,20 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.metrics import pairwise_distances
 from umap.spectral import component_layout
 
+from piu_mosso import gpu_spectral
+from piu_mosso._cupy import check_cupy
+
 # ARPACK indexes its work arrays with 32-bit signed integers
 ARPACK_MAX_ENTRIES = 2**31 - 1
 # umap-learn's own switch from eigsh to lobpcg
 UMAP_LOBPCG_MIN_VERTICES = 2_000_000
+# With use_gpu, connected components of at least this many cells are solved on the GPU; smaller ones keep the CPU
+# eigensolver, where one GPU solve per tiny component would cost more (transfers, setup) than it saves
+GPU_SPECTRAL_MIN_CELLS = 10_000
+# LOBPCG's default tolerance on the GPU: at the CPU's 1e-4 it leaves the second eigenvector less converged than
+# ARPACK's eigsh (which the CPU uses below 1.66M cells), and the layout's clusters come out less coherent; 1e-5 gives
+# eigsh's eigenvectors at little extra cost on a GPU
+GPU_SPECTRAL_TOL = 1e-5
 
 
 def choose_eigensolver(n_vertices, dim):
@@ -101,6 +111,7 @@ def multi_component_layout(
     init="random",
     tol=0.0,
     maxiter=0,
+    use_gpu=False,
 ):
     """Specialised layout algorithm for dealing with graphs with many connected components.
     This will first find relative positions for the components by spectrally embedding
@@ -146,6 +157,9 @@ def multi_component_layout(
     maxiter: int, default chosen by implementation
         Number of iterations the numerical algorithm will go through at most as it
         attempts to compute the embedding.
+
+    use_gpu: bool (piu_mosso)
+        Solve components of GPU_SPECTRAL_MIN_CELLS cells or more on the GPU (see spectral_layout).
 
     Returns
     -------
@@ -197,6 +211,7 @@ def multi_component_layout(
                 init=init,
                 tol=tol,
                 maxiter=maxiter,
+                use_gpu=use_gpu,
             )
             expansion = data_range / np.max(np.abs(component_embedding))
             component_embedding *= expansion
@@ -216,6 +231,7 @@ def spectral_layout(
     metric_kwds={},
     tol=0.0,
     maxiter=0,
+    use_gpu=False,
 ):
     """
     Given a graph compute the spectral embedding of the graph. This is
@@ -243,6 +259,14 @@ def spectral_layout(
         Number of iterations the numerical algorithm will go through at most as it
         attempts to compute the embedding.
 
+    use_gpu: bool (piu_mosso, default False)
+        Solve each connected component of GPU_SPECTRAL_MIN_CELLS cells or more with CuPy's LOBPCG on the GPU, from
+        the same start vectors; smaller components use the CPU eigensolver. The GPU always uses LOBPCG, where the CPU
+        uses eigsh below ARPACK's limit, with a default tolerance of 1e-5 (GPU_SPECTRAL_TOL; the CPU's is 1e-4), so
+        the coordinates differ slightly from the CPU's (the same eigenvectors up to sign, within the solvers'
+        tolerances). Needs CuPy (the cuda12 or cuda13 extra) and a CUDA GPU; raises
+        ImportError or RuntimeError otherwise, before any work.
+
     Returns
     -------
     embedding: array of shape (n_vertices, dim)
@@ -250,6 +274,8 @@ def spectral_layout(
 
     piu_mosso: Raises RuntimeError if the eigensolver fails (umap-learn warns and starts at random instead).
     """
+    if use_gpu:
+        check_cupy()
     return _spectral_layout(
         data=data,
         graph=graph,
@@ -260,6 +286,7 @@ def spectral_layout(
         init="random",
         tol=tol,
         maxiter=maxiter,
+        use_gpu=use_gpu,
     )
 
 
@@ -274,6 +301,7 @@ def _spectral_layout(
     method=None,
     tol=0.0,
     maxiter=0,
+    use_gpu=False,
 ):
     """General implementation of the spectral embedding of the graph, derived as
     a subset of the eigenvectors of the normalized Laplacian of the graph. The numerical
@@ -326,6 +354,9 @@ def _spectral_layout(
         Number of iterations the numerical algorithm will go through at most as it
         attempts to compute the embedding.
 
+    use_gpu: bool (piu_mosso)
+        Solve with CuPy's LOBPCG on the GPU if the graph has GPU_SPECTRAL_MIN_CELLS cells or more.
+
     Returns
     -------
     embedding: array of shape (n_vertices, dim)
@@ -346,18 +377,22 @@ def _spectral_layout(
             random_state,
             metric=metric,
             metric_kwds=metric_kwds,
+            use_gpu=use_gpu,
         )
 
     sqrt_deg = np.sqrt(np.asarray(graph.sum(axis=0)).squeeze())
-    # standard Laplacian
-    # D = scipy.sparse.spdiags(diag_data, 0, graph.shape[0], graph.shape[0])
-    # L = D - graph
-    # Normalized Laplacian
-    I = scipy.sparse.identity(graph.shape[0], dtype=np.float64)
-    D = scipy.sparse.spdiags(1.0 / sqrt_deg, 0, graph.shape[0], graph.shape[0])
-    L = I - D * graph * D
-    if not scipy.sparse.issparse(L):
-        L = np.asarray(L)
+    # piu_mosso: on the GPU, gpu_spectral builds the Laplacian there; the host one is needed only for "tsvd" starts
+    on_gpu = use_gpu and n_samples >= GPU_SPECTRAL_MIN_CELLS
+    if not on_gpu or init == "tsvd":
+        # standard Laplacian
+        # D = scipy.sparse.spdiags(diag_data, 0, graph.shape[0], graph.shape[0])
+        # L = D - graph
+        # Normalized Laplacian
+        I = scipy.sparse.identity(graph.shape[0], dtype=np.float64)
+        D = scipy.sparse.spdiags(1.0 / sqrt_deg, 0, graph.shape[0], graph.shape[0])
+        L = I - D * graph * D
+        if not scipy.sparse.issparse(L):
+            L = np.asarray(L)
 
     k = dim + 1
     num_lanczos_vectors = max(2 * k + 1, int(np.sqrt(graph.shape[0])))
@@ -367,12 +402,14 @@ def _spectral_layout(
         else np.random.default_rng(seed=random_state)
     )
     if not method:
-        # piu_mosso: lobpcg also wherever eigsh would overflow ARPACK (umap-learn: from 2,000,000 vertices on)
-        method = choose_eigensolver(L.shape[0], dim)
+        # piu_mosso: lobpcg also wherever eigsh would overflow ARPACK (umap-learn: from 2,000,000 vertices on);
+        # n_samples, as the host L is not built on the GPU path
+        method = choose_eigensolver(n_samples, dim)
 
     try:
         if init == "random":
-            X = gen.normal(size=(L.shape[0], k))
+            # piu_mosso: n_samples, as the host L is not built on the GPU path (umap-learn: L.shape[0])
+            X = gen.normal(size=(n_samples, k))
         elif init == "tsvd":
             X = TruncatedSVD(
                 n_components=k,
@@ -389,7 +426,17 @@ def _spectral_layout(
         # with the exact value.
         X[:, 0] = sqrt_deg / np.linalg.norm(sqrt_deg)
 
-        if method == "eigsh":
+        if on_gpu:
+            # piu_mosso: CuPy's LOBPCG does not warn when it stops short of tol; raise as the CPU path's warning does
+            # (residuals are recomputed, so 10% slack above tol)
+            method = "lobpcg on the GPU"
+            tol = tol or GPU_SPECTRAL_TOL
+            eigenvalues, eigenvectors, residuals = gpu_spectral.lobpcg_eigenpairs(
+                graph, sqrt_deg, X, tol=tol, maxiter=maxiter or 5 * n_samples
+            )
+            if residuals.max() > 1.1 * tol:
+                raise UserWarning(f"lobpcg on the GPU stopped with residuals {residuals} above tol {tol}")
+        elif method == "eigsh":
             eigenvalues, eigenvectors = scipy.sparse.linalg.eigsh(
                 L,
                 k,
