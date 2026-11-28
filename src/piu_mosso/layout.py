@@ -18,6 +18,7 @@ You should have received a copy of the GNU Lesser General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
+import math
 import warnings
 
 import numpy as np
@@ -68,6 +69,7 @@ def umap_embedding(
     parallel=True,
     random_state=0,
     use_gpu=False,
+    spectral_tol=None,
 ):
     """
     The UMAP layout of a fuzzy neighbour graph (e.g. umap_connectivities), with scanpy's and umap-learn's defaults.
@@ -128,6 +130,14 @@ def umap_embedding(
         CuPy raises ImportError and no usable GPU RuntimeError, 2^31 cells or more, more than 8 n_components or a
         negative negative_sample_rate ValueError, all before any work; too little GPU memory raises RuntimeError
         after pruning, before the start.
+    spectral_tol
+        Stopping tolerance of the spectral start's eigensolver, for each connected component: eigsh below about 1.66M
+        cells, LOBPCG above (and on the GPU with use_gpu, where components under 10,000 cells stay on the CPU solver
+        at the same tolerance). None keeps each solver's default (see piu_mosso.spectral). The eigenvalues of graphs
+        of millions of cells lie close together, and a loose tolerance can return a mix of eigenvectors; there, 1e-6
+        (several times slower on the CPU) or use_gpu=True gives a converged start. Use this rather than passing
+        piu_mosso.spectral.spectral_layout's output as init: an array start is not scaled to [-10, 10] or given the
+        spectral start's noise. A positive number; no effect (a warning) without the spectral start.
 
     Returns
     -------
@@ -136,6 +146,7 @@ def umap_embedding(
     _check_shapes(X, connectivities)
     init = _canonicalize_init(init, connectivities.shape[0], n_components)
     _check_n_epochs(n_epochs)
+    _check_spectral_tol(spectral_tol, init)
     if use_gpu:
         _check_gpu(connectivities.shape[0], n_components, negative_sample_rate, parallel)
     # One random state for every draw, in umap-learn's order: the start, its noise, then the layout's seeds
@@ -145,7 +156,7 @@ def umap_embedding(
     graph, n_epochs = _pruned_graph(connectivities, n_epochs)
     if use_gpu:
         gpu_layout.check_memory(graph.shape[0], graph.nnz, n_components)
-    start = _start(X, graph, init, n_components, random_state, use_gpu)
+    start = _start(X, graph, init, n_components, random_state, use_gpu, spectral_tol)
     epochs_per_sample = make_epochs_per_sample(graph.data, n_epochs)
     layout_seeds = random_state.randint(INT32_MIN, INT32_MAX, 3).astype(np.int64)
 
@@ -227,6 +238,32 @@ def _check_n_epochs(n_epochs):
         raise ValueError(f"n_epochs must be a positive integer (or None for the default), but is {n_epochs!r}")
 
 
+def _check_spectral_tol(spectral_tol, init):
+    """
+    Raise unless spectral_tol is None or a positive finite number (not a bool); warn that it has no effect without
+    the spectral start (init is canonical: "spectral", "pca" or an array).
+    """
+    if spectral_tol is None:
+        return
+    is_number = isinstance(spectral_tol, (int, float, np.integer, np.floating)) and not isinstance(spectral_tol, bool)
+    if not is_number or not _is_finite(spectral_tol) or spectral_tol <= 0:
+        raise ValueError(f"spectral_tol must be a positive number (or None for the default), but is {spectral_tol!r}")
+    if not (isinstance(init, str) and init == "spectral"):
+        warnings.warn(
+            "spectral_tol has no effect without the spectral start (init='spectral'): it is the spectral "
+            "eigensolver's tolerance",
+            stacklevel=3,
+        )
+
+
+def _is_finite(number):
+    """Whether a real number is finite; Python ints too large for a float count as infinite."""
+    try:
+        return math.isfinite(float(number))
+    except OverflowError:
+        return False
+
+
 def _check_gpu(n_cells, n_components, negative_sample_rate, parallel):
     """
     The GPU path's checks, before any work: the layout's arguments (ValueError), CuPy and a GPU (ImportError,
@@ -259,15 +296,16 @@ def _pruned_graph(connectivities, n_epochs):
     return graph, n_epochs
 
 
-def _start(X, graph, init, n_components, random_state, use_gpu=False):
+def _start(X, graph, init, n_components, random_state, use_gpu=False, spectral_tol=None):
     """
-    The start coordinates, before rescaling: spectral (on the GPU with use_gpu) or PCA (scaled to [-10, 10] plus
-    noise), or the array.
+    The start coordinates, before rescaling: spectral (on the GPU with use_gpu, at the eigensolver tolerance
+    spectral_tol) or PCA (scaled to [-10, 10] plus noise), or the array.
     """
     if isinstance(init, np.ndarray):
         return _jitter_duplicates(init, random_state)
     if init == "spectral":
-        start = spectral_layout(X, graph, n_components, random_state, use_gpu=use_gpu)
+        # None reaches the solvers, whose `tol or default` then keeps their own defaults
+        start = spectral_layout(X, graph, n_components, random_state, tol=spectral_tol, use_gpu=use_gpu)
     else:
         pca = TruncatedSVD if scipy.sparse.issparse(X) else PCA
         start = pca(n_components=n_components, random_state=random_state).fit_transform(X).astype(np.float32)

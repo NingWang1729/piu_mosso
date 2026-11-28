@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `spectral_tol` in `piu_mosso.tl.umap` and `piu_mosso.umap_embedding`: the stopping tolerance of the spectral
+  start's eigensolver (default: each solver's own). For data of millions of cells, 1e-6 or `use_gpu=True` gives a
+  converged start. `tl.umap` records it in `.uns['umap']['params']` when given. A value that is not a positive
+  number raises ValueError before any work; without the spectral start it has no effect and warns.
+
 ### Fixed
 
 - A `tol` given to `piu_mosso.spectral.spectral_layout` now reaches the eigensolver of every connected component;

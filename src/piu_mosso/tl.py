@@ -45,11 +45,13 @@ def umap(
     random_state=0,
     parallel=True,
     use_gpu=False,
+    spectral_tol=None,
 ):
     """
     The UMAP of the neighbour graph in .uns['neighbors'] (from piu_mosso.pp.neighbors or sc.pp.neighbors), written
     where sc.tl.umap writes it, so sc.pl.umap shows it. The arguments are a subset of sc.tl.umap's (no a, b, copy,
-    neighbors_key, key_added or method; init_pos without obsm keys or "paga"), plus parallel and use_gpu.
+    neighbors_key, key_added or method; init_pos without obsm keys or "paga"), plus parallel, use_gpu and
+    spectral_tol.
 
     The layout is piu_mosso.umap_embedding: umap-learn's, run in parallel by default, and a failed spectral start
     raises an error naming init_pos="pca" instead of silently starting at random. With parallel=False the result
@@ -77,6 +79,10 @@ def umap(
         Run the spectral start and the layout on a CUDA GPU (see piu_mosso.umap_embedding; needs the cuda12 or
         cuda13 extra). Repeatable for a random_state from the same start (see piu_mosso.umap_embedding), but not
         equal to the CPU result.
+    spectral_tol
+        Stopping tolerance of the spectral start's eigensolver (see piu_mosso.umap_embedding); None keeps the
+        solvers' defaults. For data of millions of cells, 1e-6 (slower on the CPU) or use_gpu=True gives a converged
+        start.
 
     Writes
     ------
@@ -84,7 +90,7 @@ def umap(
         The layout, float32 (n_cells, n_components).
     .uns['umap']
         {'params': {'a', 'b'}} (plus 'random_state' if it is not 0), as scanpy writes it, plus 'use_gpu': True for
-        a GPU layout.
+        a GPU layout and 'spectral_tol' (a float) if given.
     """
     init_pos = _canonicalize_init_pos(init_pos)
     neighbors = _get_neighbors(adata)
@@ -106,6 +112,7 @@ def umap(
         parallel=parallel,
         random_state=random_state,
         use_gpu=use_gpu,
+        spectral_tol=spectral_tol,
     )
     a, b = find_ab_params(spread, min_dist)
     adata.uns["umap"] = {"params": {"a": a, "b": b}}
@@ -114,6 +121,9 @@ def umap(
     # Recorded only for GPU layouts, so CPU results keep scanpy's keys
     if use_gpu:
         adata.uns["umap"]["params"]["use_gpu"] = True
+    # A plain float, so the AnnData writes to h5ad whatever number type was passed
+    if spectral_tol is not None:
+        adata.uns["umap"]["params"]["spectral_tol"] = float(spectral_tol)
 
 
 def _canonicalize_init_pos(init_pos):

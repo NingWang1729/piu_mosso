@@ -21,10 +21,13 @@ import sys
 import numpy as np
 import pytest
 import scipy.sparse
+import scipy.sparse.linalg
 from sklearn.utils import check_random_state
 from umap.umap_ import find_ab_params, simplicial_set_embedding
 
+import piu_mosso.gpu_spectral
 import piu_mosso.layout
+import piu_mosso.spectral
 from piu_mosso import knn, umap_connectivities, umap_embedding
 from piu_mosso.layout import default_n_epochs
 
@@ -211,3 +214,67 @@ def test_serial_option_warns_on_the_gpu():
     X, graph = clustered_graph()
     with pytest.warns(UserWarning, match="parallel=False has no effect"):
         umap_embedding(X, graph, use_gpu=True, parallel=False, n_epochs=5)
+
+
+@pytest.fixture
+def solver_tols(monkeypatch):
+    """(solver, tol) of each eigensolver call during a test (scipy's eigsh and lobpcg, piu_mosso's GPU lobpcg)."""
+    calls = []
+    solvers = [(scipy.sparse.linalg, "eigsh"), (scipy.sparse.linalg, "lobpcg"),
+               (piu_mosso.gpu_spectral, "lobpcg_eigenpairs")]
+    for module, name in solvers:
+        solve = getattr(module, name)
+
+        def recording(*args, _name=name, _solve=solve, **kwargs):
+            calls.append((_name, kwargs["tol"]))
+            return _solve(*args, **kwargs)
+
+        monkeypatch.setattr(module, name, recording)
+    return calls
+
+
+def test_spectral_tol_reaches_the_eigensolver(monkeypatch, solver_tols):
+    # One connected component, so one eigensolver call; without spectral_tol the solver keeps its own default
+    X, graph = clustered_graph(n_clusters=1, cells_per_cluster=500)
+    umap_embedding(X, graph, n_epochs=5, spectral_tol=1e-6)
+    umap_embedding(X, graph, n_epochs=5)
+    assert solver_tols == [("eigsh", 1e-6), ("eigsh", 1e-4)]
+    # Large components use lobpcg (forced here on a small one)
+    monkeypatch.setattr(piu_mosso.spectral, "choose_eigensolver", lambda n_vertices, dim: "lobpcg")
+    umap_embedding(X, graph, n_epochs=5, spectral_tol=1e-6)
+    assert solver_tols[-1] == ("lobpcg", 1e-6)
+    # Each connected component's solve gets it (two far-apart clusters); numpy numbers are accepted
+    solver_tols.clear()
+    X, graph = clustered_graph(n_clusters=2, cells_per_cluster=300, separation=100.0)
+    umap_embedding(X, graph, n_epochs=5, spectral_tol=np.float32(1e-6))
+    assert solver_tols == [("lobpcg", np.float32(1e-6))] * 2
+
+
+@pytest.mark.parametrize(
+    "spectral_tol", [0, -1e-5, float("nan"), float("inf"), 10**400, "1e-5", True, np.bool_(True)]
+)
+def test_bad_spectral_tol_raises_before_any_work(monkeypatch, spectral_tol):
+    monkeypatch.setattr(piu_mosso.layout, "_pruned_graph", lambda *args: pytest.fail("work started"))
+    X, graph = clustered_graph()
+    with pytest.raises(ValueError, match="spectral_tol"):
+        umap_embedding(X, graph, spectral_tol=spectral_tol)
+
+
+@pytest.mark.parametrize("init", ["pca", "array"])
+def test_spectral_tol_without_spectral_start_warns(init):
+    X, graph = clustered_graph()
+    start = np.random.default_rng(0).normal(size=(X.shape[0], 2)).astype(np.float32) if init == "array" else init
+    # The warning names the caller's line (this file), not piu_mosso's
+    with pytest.warns(UserWarning, match="spectral_tol has no effect") as record:
+        umap_embedding(X, graph, init=start, n_epochs=5, spectral_tol=1e-6)
+    assert [w.filename for w in record if "spectral_tol" in str(w.message)] == [__file__]
+
+
+@needs_gpu
+def test_spectral_tol_reaches_the_gpu_eigensolver(monkeypatch, solver_tols):
+    # A 500-cell component counts as large enough for the GPU here; without spectral_tol the GPU keeps its default
+    monkeypatch.setattr(piu_mosso.spectral, "GPU_SPECTRAL_MIN_CELLS", 500)
+    X, graph = clustered_graph(n_clusters=1, cells_per_cluster=500)
+    umap_embedding(X, graph, n_epochs=5, use_gpu=True, spectral_tol=1e-6)
+    umap_embedding(X, graph, n_epochs=5, use_gpu=True)
+    assert solver_tols == [("lobpcg_eigenpairs", 1e-6), ("lobpcg_eigenpairs", 1e-5)]

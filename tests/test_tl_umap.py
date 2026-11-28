@@ -170,6 +170,43 @@ def test_umap_passes_use_gpu_and_records_it(monkeypatch):
     assert "use_gpu" not in adata.uns["umap"]["params"]
 
 
+def test_umap_passes_spectral_tol_and_records_it(monkeypatch):
+    # The layout is replaced, to check what tl.umap passes and writes; recorded as a plain float (h5ad-safe)
+    calls = []
+    monkeypatch.setattr(
+        piu_mosso.tl, "umap_embedding", lambda X, graph, **kwargs: calls.append(kwargs) or np.zeros((len(X), 2))
+    )
+    adata = clustered_adata()
+    piu_mosso.pp.neighbors(adata, use_rep="X_pca")
+    piu_mosso.tl.umap(adata, spectral_tol=np.float32(1e-6))
+    assert calls[-1]["spectral_tol"] == np.float32(1e-6)
+    assert adata.uns["umap"]["params"]["spectral_tol"] == float(np.float32(1e-6))
+    assert type(adata.uns["umap"]["params"]["spectral_tol"]) is float
+    piu_mosso.tl.umap(adata)
+    assert calls[-1]["spectral_tol"] is None
+    assert "spectral_tol" not in adata.uns["umap"]["params"]
+
+
+def test_umap_with_spectral_tol_and_a_pca_start_warns():
+    # Through tl.umap the warning points at tl.umap's call of umap_embedding, as the parallel=False warning does
+    adata = clustered_adata()
+    piu_mosso.pp.neighbors(adata, use_rep="X_pca")
+    with pytest.warns(UserWarning, match="spectral_tol has no effect") as record:
+        piu_mosso.tl.umap(adata, init_pos="pca", maxiter=5, spectral_tol=1e-6)
+    assert [w.filename for w in record if "spectral_tol" in str(w.message)] == [piu_mosso.tl.__file__]
+
+
+def test_umap_with_spectral_tol_end_to_end(tmp_path):
+    # As a user runs it: neighbours, a UMAP with a tighter spectral tolerance, and the result saved to h5ad
+    adata = clustered_adata(n_cells=3000)
+    piu_mosso.pp.neighbors(adata, use_rep="X_pca")
+    piu_mosso.tl.umap(adata, spectral_tol=1e-6)
+    assert adata.obsm["X_umap"].shape == (3000, 2)
+    assert np.all(np.isfinite(adata.obsm["X_umap"]))
+    adata.write_h5ad(tmp_path / "umap.h5ad")
+    assert ad.read_h5ad(tmp_path / "umap.h5ad").uns["umap"]["params"]["spectral_tol"] == 1e-6
+
+
 @pytest.mark.skipif(not cupy_gpu_available(), reason="needs CuPy and a CUDA GPU")
 def test_gpu_umap_end_to_end_repeats():
     # A PCA start: the spectral start of this graph's separate clusters may itself vary between runs

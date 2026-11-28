@@ -68,6 +68,9 @@ piu_mosso.tl.umap(adata)                         # spectral start, parallel layo
 sc.pl.umap(adata, color="cell_type")
 ```
 
+For data of millions of cells, pass `spectral_tol=1e-6` (slower on the CPU) or `use_gpu=True` to `tl.umap`: the
+spectral start's eigenvalues lie close together there, and the default tolerance can leave the start unconverged.
+
 Seurat v3 highly variable genes over several datasets together, from raw counts, without concatenating them or
 loading them into memory:
 
