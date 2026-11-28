@@ -21,6 +21,7 @@ import sys
 import numpy as np
 import pytest
 import scipy.sparse
+import scipy.sparse.linalg
 import umap.spectral
 from sklearn.utils import check_random_state
 
@@ -117,6 +118,51 @@ def test_failed_eigensolver_raises_naming_pca(monkeypatch, solver):
         spectral_layout(X, graph, 2, check_random_state(0), maxiter=1)
 
 
+@pytest.fixture
+def cpu_solver_tols(monkeypatch):
+    """(solver, tol) of each call to scipy's eigsh or lobpcg during a test; the real solvers still run."""
+    calls = []
+    for name in ("eigsh", "lobpcg"):
+        solve = getattr(scipy.sparse.linalg, name)
+
+        def recording(*args, _name=name, _solve=solve, **kwargs):
+            calls.append((_name, kwargs["tol"]))
+            return _solve(*args, **kwargs)
+
+        monkeypatch.setattr(scipy.sparse.linalg, name, recording)
+    return calls
+
+
+def test_lobpcg_default_tolerance_is_1e_5(monkeypatch, cpu_solver_tols):
+    # Large graphs use lobpcg (forced here on a small one); at umap-learn's 1e-4 it can stop before telling apart
+    # eigenvectors whose eigenvalues are closer than that, as on graphs of millions of cells
+    monkeypatch.setattr(piu_mosso.spectral, "choose_eigensolver", lambda n_vertices, dim: "lobpcg")
+    X, graph = clustered_graph(1, 1000, 1.0)
+    spectral_layout(X, graph, 2, check_random_state(0))
+    assert cpu_solver_tols == [("lobpcg", 1e-5)]
+
+
+def test_eigsh_default_tolerance_stays_1e_4(cpu_solver_tols):
+    # Guard (passes before the change too): below ARPACK's limit the start keeps umap-learn's eigsh at 1e-4
+    X, graph = clustered_graph(1, 1000, 1.0)
+    spectral_layout(X, graph, 2, check_random_state(0))
+    assert cpu_solver_tols == [("eigsh", 1e-4)]
+
+
+def test_a_given_tolerance_overrides_the_cpu_default(monkeypatch, cpu_solver_tols):
+    # Guard (passes before the change too): a tol passed to spectral_layout reaches lobpcg
+    monkeypatch.setattr(piu_mosso.spectral, "choose_eigensolver", lambda n_vertices, dim: "lobpcg")
+    X, graph = clustered_graph(1, 1000, 1.0)
+    spectral_layout(X, graph, 2, check_random_state(0), tol=1e-6)
+    assert cpu_solver_tols == [("lobpcg", 1e-6)]
+
+
+def test_old_tolerance_name_warns_and_gives_the_new_constant():
+    # GPU_SPECTRAL_TOL was the GPU's tolerance in 0.2.0; it now names LOBPCG_TOL, which both paths use
+    with pytest.warns(DeprecationWarning, match="LOBPCG_TOL"):
+        assert piu_mosso.spectral.GPU_SPECTRAL_TOL == piu_mosso.spectral.LOBPCG_TOL
+
+
 def test_use_gpu_without_cupy_raises_naming_the_extra(monkeypatch):
     # sys.modules[name] = None makes `import cupy` fail, whether or not CuPy is installed
     monkeypatch.setitem(sys.modules, "cupy", None)
@@ -150,7 +196,7 @@ def gpu_solves(monkeypatch):
 @needs_gpu
 def test_gpu_layout_has_the_cpu_eigenvectors(gpu_solves):
     # 12,000 cells: above GPU_SPECTRAL_MIN_CELLS, so solved on the GPU; its eigenvectors span the CPU's space within
-    # the solvers' tolerance (eigsh on the CPU, lobpcg on the GPU, both 1e-4)
+    # the solvers' tolerances (eigsh on the CPU at 1e-4, lobpcg on the GPU at 1e-5)
     X, graph = clustered_graph(1, 12_000, 1.0)
     cpu = spectral_layout(X, graph, 2, check_random_state(0))
     gpu = spectral_layout(X, graph, 2, check_random_state(0), use_gpu=True)

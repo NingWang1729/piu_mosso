@@ -78,9 +78,10 @@ def umap_embedding(
     simplicial_set_embedding, each sampled edge moves both of its cells (move_other=True). The low-level default
     (False) halves the attraction and splits clusters into islands. With parallel=False, the result equals
     simplicial_set_embedding's for the same graph, start and random_state, with metric="euclidean" (umap-learn places
-    separate connected components by that metric), except on connected components of about 1.66M to 2M cells,
-    where umap-learn's spectral start would crash (ARPACK) and this one uses lobpcg. In parallel, threads race on
-    shared coordinates, so results vary from run to run.
+    separate connected components by that metric), except on connected components of about 1.66M cells or more,
+    where this spectral start uses lobpcg: there umap-learn's would crash (ARPACK, below 2M cells) or stop at a looser
+    tolerance (piu_mosso.spectral.LOBPCG_TOL). In parallel, threads race on shared coordinates, so results vary from
+    run to run.
 
     Steps, as in umap-learn:
     1. Edges weaker than max weight / n_epochs are dropped (they would never be sampled); with 10 or fewer epochs,

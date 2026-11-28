@@ -1,13 +1,14 @@
 """
-The spectral start of the UMAP layout: umap-learn's spectral layout with two changes.
+The spectral start of the UMAP layout: umap-learn's spectral layout with three changes.
 
 1. The eigensolver is lobpcg wherever ARPACK (scipy's eigsh) would overflow its 32-bit indices, not only from
    2,000,000 vertices on (see choose_eigensolver).
 2. A failed eigensolver raises RuntimeError, naming init="pca" as the fix, instead of warning and falling back to a
    random start.
+3. lobpcg's default tolerance is 1e-5 instead of 1e-4 (see LOBPCG_TOL).
 
 Everything else is umap-learn's, so for the same graph and random state the result equals umap-learn's wherever
-umap-learn uses the same eigensolver and does not fail.
+both use eigsh and it does not fail.
 
 multi_component_layout, spectral_layout and _spectral_layout are copied from umap-learn 0.5.12 (umap/spectral.py),
 changed only where marked "piu_mosso:". umap-learn is distributed under the BSD 3-Clause License:
@@ -78,10 +79,19 @@ UMAP_LOBPCG_MIN_VERTICES = 2_000_000
 # With use_gpu, connected components of at least this many cells are solved on the GPU; smaller ones keep the CPU
 # eigensolver, where one GPU solve per tiny component would cost more (transfers, setup) than it saves
 GPU_SPECTRAL_MIN_CELLS = 10_000
-# LOBPCG's default tolerance on the GPU: at the CPU's 1e-4 it leaves the second eigenvector less converged than
-# ARPACK's eigsh (which the CPU uses below 1.66M cells), and the layout's clusters come out less coherent; 1e-5 gives
-# eigsh's eigenvectors at little extra cost on a GPU
-GPU_SPECTRAL_TOL = 1e-5
+# LOBPCG's default tolerance, on the CPU and the GPU (umap-learn: 1e-4). LOBPCG stops when every residual
+# ||L v - lambda v|| is below it, and an eigenvector's error is about its residual over the gap to the nearest other
+# eigenvalue. Large graphs have small gaps: at 1e-4, LOBPCG can return a mix of two eigenvectors, or the wrong one,
+# and the layout's clusters come out less coherent
+LOBPCG_TOL = 1e-5
+
+
+def __getattr__(name):
+    """GPU_SPECTRAL_TOL, LOBPCG_TOL's name in 0.2.0 (when only the GPU used it), with a DeprecationWarning."""
+    if name == "GPU_SPECTRAL_TOL":
+        warnings.warn("GPU_SPECTRAL_TOL is deprecated: use LOBPCG_TOL", DeprecationWarning, stacklevel=2)
+        return LOBPCG_TOL
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def choose_eigensolver(n_vertices, dim):
@@ -254,6 +264,7 @@ def spectral_layout(
 
     tol: float, default chosen by implementation
         Stopping tolerance for the numerical algorithm computing the embedding.
+        piu_mosso: by default 1e-4 for eigsh and LOBPCG_TOL (1e-5) for lobpcg, on the CPU and the GPU.
 
     maxiter: int, default chosen by implementation
         Number of iterations the numerical algorithm will go through at most as it
@@ -262,8 +273,8 @@ def spectral_layout(
     use_gpu: bool (piu_mosso, default False)
         Solve each connected component of GPU_SPECTRAL_MIN_CELLS cells or more with CuPy's LOBPCG on the GPU, from
         the same start vectors; smaller components use the CPU eigensolver. The GPU always uses LOBPCG, where the CPU
-        uses eigsh below ARPACK's limit, with a default tolerance of 1e-5 (GPU_SPECTRAL_TOL; the CPU's is 1e-4), so
-        the coordinates differ slightly from the CPU's (the same eigenvectors up to sign, within the solvers'
+        uses eigsh (at 1e-4) below ARPACK's limit, and LOBPCG's default tolerance is LOBPCG_TOL on both, so the
+        coordinates differ slightly from the CPU's (the same eigenvectors up to sign, within the solvers'
         tolerances). Needs CuPy (the cuda12 or cuda13 extra) and a CUDA GPU; raises
         ImportError or RuntimeError otherwise, before any work.
 
@@ -430,7 +441,7 @@ def _spectral_layout(
             # piu_mosso: CuPy's LOBPCG does not warn when it stops short of tol; raise as the CPU path's warning does
             # (residuals are recomputed, so 10% slack above tol)
             method = "lobpcg on the GPU"
-            tol = tol or GPU_SPECTRAL_TOL
+            tol = tol or LOBPCG_TOL
             eigenvalues, eigenvectors, residuals = gpu_spectral.lobpcg_eigenpairs(
                 graph, sqrt_deg, X, tol=tol, maxiter=maxiter or 5 * n_samples
             )
@@ -453,11 +464,12 @@ def _spectral_layout(
                     message=r"(?ms).*not reaching the requested tolerance",
                     action="error",
                 )
+                # piu_mosso: LOBPCG_TOL by default (umap-learn: 1e-4)
                 eigenvalues, eigenvectors = scipy.sparse.linalg.lobpcg(
                     L,
                     np.asarray(X),
                     largest=False,
-                    tol=tol or 1e-4,
+                    tol=tol or LOBPCG_TOL,
                     maxiter=maxiter or 5 * graph.shape[0],
                 )
         else:

@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The spectral start's LOBPCG (used on the CPU for connected components of about 1.66M cells or more) stops at a
+  tolerance of 1e-5 by default instead of umap-learn's 1e-4, as on the GPU. On large graphs, where eigenvalues lie
+  close together, 1e-4 could return a mix of two eigenvectors or the wrong one, and the layout's clusters came out
+  less coherent. Starts of such components change and take longer to compute (`spectral_layout(..., tol=1e-4)` gives
+  the old behaviour). The constant is now `piu_mosso.spectral.LOBPCG_TOL`; `GPU_SPECTRAL_TOL` still works but warns
+  (DeprecationWarning).
+
 ## [0.2.0] - 2026-11-27
 
 ### Added
