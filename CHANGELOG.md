@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A `tol` given to `piu_mosso.spectral.spectral_layout` now reaches the eigensolver of every connected component;
+  on graphs of several components it was dropped (as in umap-learn) and each component used the default.
+
 ## [0.2.0] - 2026-11-27
 
 ### Added

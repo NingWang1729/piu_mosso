@@ -1,10 +1,12 @@
 """
-The spectral start of the UMAP layout: umap-learn's spectral layout with two changes.
+The spectral start of the UMAP layout: umap-learn's spectral layout with three changes.
 
 1. The eigensolver is lobpcg wherever ARPACK (scipy's eigsh) would overflow its 32-bit indices, not only from
    2,000,000 vertices on (see choose_eigensolver).
 2. A failed eigensolver raises RuntimeError, naming init="pca" as the fix, instead of warning and falling back to a
    random start.
+3. A given tol reaches the eigensolver of every connected component (umap-learn's drops it on graphs of several
+   components, which then use the default).
 
 Everything else is umap-learn's, so for the same graph and random state the result equals umap-learn's wherever
 umap-learn uses the same eigensolver and does not fail.
@@ -368,6 +370,8 @@ def _spectral_layout(
     n_components, labels = scipy.sparse.csgraph.connected_components(graph)
 
     if n_components > 1:
+        # piu_mosso: tol reaches each component's eigensolver (umap-learn drops it here, so components use the default);
+        # maxiter, init and method stay umap-learn's (dropped), as no piu_mosso argument sets them
         return multi_component_layout(
             data,
             graph,
@@ -377,6 +381,7 @@ def _spectral_layout(
             random_state,
             metric=metric,
             metric_kwds=metric_kwds,
+            tol=tol,
             use_gpu=use_gpu,
         )
 

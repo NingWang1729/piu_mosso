@@ -21,6 +21,7 @@ import sys
 import numpy as np
 import pytest
 import scipy.sparse
+import scipy.sparse.linalg
 import umap.spectral
 from sklearn.utils import check_random_state
 
@@ -115,6 +116,21 @@ def test_failed_eigensolver_raises_naming_pca(monkeypatch, solver):
     monkeypatch.setattr(piu_mosso.spectral, "choose_eigensolver", lambda n_vertices, dim: solver)
     with pytest.raises(RuntimeError, match="init='pca'.*init_pos='pca'"):
         spectral_layout(X, graph, 2, check_random_state(0), maxiter=1)
+
+
+def test_a_given_tolerance_reaches_every_components_eigensolver(monkeypatch):
+    # umap-learn drops tol on graphs of several connected components; here each component's eigsh gets it
+    tols = []
+    eigsh = scipy.sparse.linalg.eigsh
+
+    def recording(*args, **kwargs):
+        tols.append(kwargs["tol"])
+        return eigsh(*args, **kwargs)
+
+    monkeypatch.setattr(scipy.sparse.linalg, "eigsh", recording)
+    X, graph = clustered_graph(2, 300, 100.0)
+    spectral_layout(X, graph, 2, check_random_state(0), tol=1e-6)
+    assert tols == [1e-6, 1e-6]
 
 
 def test_use_gpu_without_cupy_raises_naming_the_extra(monkeypatch):
